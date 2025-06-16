@@ -1,7 +1,11 @@
 import streamlit as st
 import pandas as pd
 from pulp import LpProblem, LpVariable, LpBinary, lpSum, LpMinimize, PULP_CBC_CMD
-import io, csv
+import io, csv, time
+
+# This version merges all profile forms under a single "School Profile" tab,
+# caches solver output for faster reruns, displays schedule generation time,
+# and fixes room overload checks. A teacher dropdown shows individual schedules.
 
 # ----------------------------
 # 1. CONSTANTS
@@ -23,6 +27,7 @@ shift_period_ranges = {
 # ----------------------------
 # 2. SCHEDULER FUNCTION
 # ----------------------------
+@st.cache_data(show_spinner=False)
 def solve_with_pulp(teachers, rooms, classes, max_per_day, max_per_week, num_shifts):
     # classes: list of (id, subject, times_per_week, duration)
     class_subject = {cid: subj for cid, subj, _, _ in classes}
@@ -107,11 +112,12 @@ def main():
     if "max_per_week" not in st.session_state:
         st.session_state.max_per_week = 30
 
-    tabs = st.tabs(["Teacher Data","Classroom Data","Section Data","Constraints","Scheduler","Diagnostics","SRI & Simulation"])
+    tabs = st.tabs(["School Profile","Constraints","Scheduler","Diagnostics","SRI & Simulation"])
 
-    # Teacher Data Tab
+    # School Profile Tab
     with tabs[0]:
-        st.header("Teacher Data")
+        st.header("School Profile")
+        st.subheader("Teacher Data")
         uploaded = st.file_uploader("Upload teachers CSV", type=["csv"], key="teacher_upload")
         if uploaded:
             raw_bytes = uploaded.getvalue()
@@ -191,9 +197,7 @@ def main():
         st.session_state.teachers_df['minor'] = st.session_state.teachers_df['minor'].astype(str)
         st.dataframe(st.session_state.teachers_df)
 
-    # Classroom Data Tab
-    with tabs[1]:
-        st.header("Classroom Data")
+        st.subheader("Classroom Data")
         uploaded = st.file_uploader("Upload classrooms CSV", type=["csv"], key="room_upload")
         if uploaded:
             raw_bytes = uploaded.getvalue()
@@ -262,9 +266,7 @@ def main():
         st.session_state.rooms_df['capacity'] = pd.to_numeric(st.session_state.rooms_df['capacity'], errors='coerce')
         st.dataframe(st.session_state.rooms_df)
 
-    # Subject Data Tab
-    with tabs[2]:
-        st.header("Subject Data")
+        st.subheader("Subject Data")
         uploaded = st.file_uploader("Upload subjects CSV", type=["csv"], key="subj_upload")
         if uploaded:
             raw_bytes = uploaded.getvalue()
@@ -342,7 +344,7 @@ def main():
         st.dataframe(st.session_state.classes_df)
 
     # Constraints Tab
-    with tabs[3]:
+    with tabs[1]:
         st.header("Scheduling Constraints")
         st.session_state.max_per_day = st.number_input("Max periods per day",min_value=1,max_value=10,value=st.session_state.max_per_day)
         st.session_state.max_per_week = st.number_input("Max periods per week",min_value=1,max_value=50,value=st.session_state.max_per_week)
@@ -355,7 +357,7 @@ def main():
             st.info("Morning, Afternoon, and Evening shifts")
 
     # Scheduler Tab
-    with tabs[4]:
+    with tabs[2]:
         st.header("Scheduler")
         shift_labels = {1: ["Whole Day"], 2: ["Morning", "Afternoon"], 3: ["Morning", "Afternoon", "Evening"]}
         shift_period_ranges = {
@@ -364,6 +366,7 @@ def main():
             3: [(0, 2), (3, 6), (7, 9)],
         }
         if st.button("Generate Schedule"):
+            start_time = time.perf_counter()
             progress = st.progress(0, text="Generating schedule...")
             teachers = list(st.session_state.teachers_df.itertuples(index=False, name=None))
             progress.progress(10, text="Processing teachers...")
@@ -371,14 +374,15 @@ def main():
             progress.progress(20, text="Processing rooms...")
             classes = list(st.session_state.classes_df.itertuples(index=False, name=None))
             progress.progress(30, text="Processing classes...")
-            import time
             progress.progress(50, text="Solving optimization problem...")
             sched = solve_with_pulp(teachers, rooms, classes, st.session_state.max_per_day, st.session_state.max_per_week, st.session_state.num_shifts)
             progress.progress(90, text="Building output...")
             st.session_state['last_schedule'] = sched
-            progress.progress(100, text="Done!")
+            elapsed = time.perf_counter() - start_time
+            progress.progress(100, text=f"Done in {elapsed:.2f}s")
             time.sleep(0.5)
             progress.empty()
+            st.caption(f"Schedule generated in {elapsed:.2f} seconds")
             if sched.empty:
                 st.error("No feasible schedule. Check inputs.")
             else:
@@ -393,21 +397,29 @@ def main():
                 st.subheader("Timetable View (by Teacher, with Shifts)")
                 teachers_df = st.session_state.teachers_df
                 teacher_id_to_name = {row['id']: row.get('name', row['id']) for _, row in teachers_df.iterrows()} if 'name' in teachers_df.columns else {row['id']: row['id'] for _, row in teachers_df.iterrows()}
-                for teacher in sched['Teacher'].unique():
-                    st.markdown(f"**Teacher: {teacher_id_to_name.get(teacher, teacher)}**")
-                    for shift_idx, rng in enumerate(shift_period_ranges[st.session_state.num_shifts]):
-                        shift_name = shift_labels[st.session_state.num_shifts][shift_idx]
-                        shift_periods_list = periods[rng[0]:rng[1]+1]
-                        timetable = pd.DataFrame('', index=shift_periods_list, columns=days)
-                        t_sched = sched[(sched['Teacher'] == teacher) & (sched['Period'].isin(shift_periods_list))]
-                        for _, row in t_sched.iterrows():
-                            cell = f"{row['Subject']}\n({row['Class']})\nRoom: {row['Room']}"
-                            timetable.at[row['Period'], row['Day']] = cell
-                        st.markdown(f"*Shift: {shift_name}*")
-                        st.dataframe(timetable)
+                teacher_map = {}
+                teacher_options = []
+                for tid in sched['Teacher'].unique():
+                    name = teacher_id_to_name.get(tid, tid)
+                    display = f"{name} ({tid})" if name != tid else str(tid)
+                    teacher_map[display] = tid
+                    teacher_options.append(display)
+                teacher_display = st.selectbox("Select Teacher", teacher_options)
+                teacher = teacher_map[teacher_display]
+                st.markdown(f"**Teacher: {teacher_display}**")
+                for shift_idx, rng in enumerate(shift_period_ranges[st.session_state.num_shifts]):
+                    shift_name = shift_labels[st.session_state.num_shifts][shift_idx]
+                    shift_periods_list = periods[rng[0]:rng[1]+1]
+                    timetable = pd.DataFrame('', index=shift_periods_list, columns=days)
+                    t_sched = sched[(sched['Teacher'] == teacher) & (sched['Period'].isin(shift_periods_list))]
+                    for _, row in t_sched.iterrows():
+                        cell = f"{row['Subject']}\n({row['Class']})\nRoom: {row['Room']}"
+                        timetable.at[row['Period'], row['Day']] = cell
+                    st.markdown(f"*Shift: {shift_name}*")
+                    st.dataframe(timetable)
 
     # Diagnostics Tab (Phase 2)
-    with tabs[5]:
+    with tabs[3]:
         st.header("School Diagnostics & Gap Analysis")
         sched = st.session_state.get('last_schedule', pd.DataFrame())
         teachers_df = st.session_state.teachers_df
@@ -431,7 +443,9 @@ def main():
                 st.dataframe(over_teachers)
             # 3. Overloaded classrooms
             room_counts = sched.groupby('Room').size()
-            over_rooms = room_counts[room_counts > rooms_df.set_index('id')['capacity'].max()]
+            room_cap = rooms_df.set_index('id')['capacity']
+            aligned_counts = room_counts.reindex(room_cap.index, fill_value=0)
+            over_rooms = aligned_counts[aligned_counts > room_cap]
             st.write(f"Overloaded classrooms: {len(over_rooms)}")
             if not over_rooms.empty:
                 st.dataframe(over_rooms)
@@ -480,7 +494,7 @@ def main():
             st.dataframe(esf7)
 
     # SRI & Simulation Tab
-    with tabs[6]:
+    with tabs[4]:
         st.header("School Readiness Index (SRI) & Simulation")
         sched = st.session_state.get('last_schedule', pd.DataFrame())
         teachers_df = st.session_state.teachers_df
@@ -498,7 +512,9 @@ def main():
             over_teachers = teacher_counts[teacher_counts > st.session_state.max_per_week]
             percent_overload_teachers = 100 * len(over_teachers) / len(teachers_df) if len(teachers_df) else 0
             room_counts = sched.groupby('Room').size()
-            over_rooms = room_counts[room_counts > rooms_df.set_index('id')['capacity'].max()]
+            room_cap = rooms_df.set_index('id')['capacity']
+            aligned_counts = room_counts.reindex(room_cap.index, fill_value=0)
+            over_rooms = aligned_counts[aligned_counts > room_cap]
             percent_overload_rooms = 100 * len(over_rooms) / len(rooms_df) if len(rooms_df) else 0
             unmet_sections = 0 # Placeholder: can be computed if logic for unmet is added
             percent_unmet_sections = 0 # Placeholder
