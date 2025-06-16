@@ -440,7 +440,8 @@ def main():
             # 3. Overloaded classrooms
             room_counts = sched.groupby('Room').size()
             room_cap = rooms_df.set_index('id')['capacity']
-            over_rooms = room_counts[room_counts > room_cap]
+            aligned_counts = room_counts.reindex(room_cap.index, fill_value=0)
+            over_rooms = aligned_counts[aligned_counts > room_cap]
             st.write(f"Overloaded classrooms: {len(over_rooms)}")
             if not over_rooms.empty:
                 st.dataframe(over_rooms)
@@ -508,7 +509,8 @@ def main():
             percent_overload_teachers = 100 * len(over_teachers) / len(teachers_df) if len(teachers_df) else 0
             room_counts = sched.groupby('Room').size()
             room_cap = rooms_df.set_index('id')['capacity']
-            over_rooms = room_counts[room_counts > room_cap]
+            aligned_counts = room_counts.reindex(room_cap.index, fill_value=0)
+            over_rooms = aligned_counts[aligned_counts > room_cap]
             percent_overload_rooms = 100 * len(over_rooms) / len(rooms_df) if len(rooms_df) else 0
             unmet_sections = 0 # Placeholder: can be computed if logic for unmet is added
             percent_unmet_sections = 0 # Placeholder
