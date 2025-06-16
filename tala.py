@@ -3,6 +3,10 @@ import pandas as pd
 from pulp import LpProblem, LpVariable, LpBinary, lpSum, LpMinimize, PULP_CBC_CMD
 import io, csv, time
 
+# This version merges all profile forms under a single "School Profile" tab,
+# caches solver output for faster reruns, displays schedule generation time,
+# and fixes room overload checks. A teacher dropdown shows individual schedules.
+
 # ----------------------------
 # 1. CONSTANTS
 # ----------------------------
