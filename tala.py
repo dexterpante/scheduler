@@ -377,46 +377,50 @@ def main():
             progress.progress(50, text="Solving optimization problem...")
             sched = solve_with_pulp(teachers, rooms, classes, st.session_state.max_per_day, st.session_state.max_per_week, st.session_state.num_shifts)
             progress.progress(90, text="Building output...")
-            st.session_state['last_schedule'] = sched
             elapsed = time.perf_counter() - start_time
             progress.progress(100, text=f"Done in {elapsed:.2f}s")
             time.sleep(0.5)
             progress.empty()
+            st.session_state['last_schedule'] = sched
+            st.session_state['last_elapsed'] = elapsed
+
+        sched = st.session_state.get('last_schedule', pd.DataFrame())
+        if not sched.empty:
+            elapsed = st.session_state.get('last_elapsed', 0)
             st.caption(f"Schedule generated in {elapsed:.2f} seconds")
-            if sched.empty:
-                st.error("No feasible schedule. Check inputs.")
-            else:
-                st.subheader("Raw Schedule Table")
-                for col in sched.columns:
-                    if col in ["times_per_week", "duration"]:
-                        sched[col] = pd.to_numeric(sched[col], errors='coerce')
-                    else:
-                        sched[col] = sched[col].astype(str)
-                st.table(sched.sort_values(["Day", "Period", "Room"]))
-                # Timetable output with shift labels
-                st.subheader("Timetable View (by Teacher, with Shifts)")
-                teachers_df = st.session_state.teachers_df
-                teacher_id_to_name = {row['id']: row.get('name', row['id']) for _, row in teachers_df.iterrows()} if 'name' in teachers_df.columns else {row['id']: row['id'] for _, row in teachers_df.iterrows()}
-                teacher_map = {}
-                teacher_options = []
-                for tid in sched['Teacher'].unique():
-                    name = teacher_id_to_name.get(tid, tid)
-                    display = f"{name} ({tid})" if name != tid else str(tid)
-                    teacher_map[display] = tid
-                    teacher_options.append(display)
-                teacher_display = st.selectbox("Select Teacher", teacher_options)
-                teacher = teacher_map[teacher_display]
-                st.markdown(f"**Teacher: {teacher_display}**")
-                for shift_idx, rng in enumerate(shift_period_ranges[st.session_state.num_shifts]):
-                    shift_name = shift_labels[st.session_state.num_shifts][shift_idx]
-                    shift_periods_list = periods[rng[0]:rng[1]+1]
-                    timetable = pd.DataFrame('', index=shift_periods_list, columns=days)
-                    t_sched = sched[(sched['Teacher'] == teacher) & (sched['Period'].isin(shift_periods_list))]
-                    for _, row in t_sched.iterrows():
-                        cell = f"{row['Subject']}\n({row['Class']})\nRoom: {row['Room']}"
-                        timetable.at[row['Period'], row['Day']] = cell
-                    st.markdown(f"*Shift: {shift_name}*")
-                    st.dataframe(timetable)
+            st.subheader("Raw Schedule Table")
+            for col in sched.columns:
+                if col in ["times_per_week", "duration"]:
+                    sched[col] = pd.to_numeric(sched[col], errors='coerce')
+                else:
+                    sched[col] = sched[col].astype(str)
+            st.table(sched.sort_values(["Day", "Period", "Room"]))
+            # Timetable output with shift labels
+            st.subheader("Timetable View (by Teacher, with Shifts)")
+            teachers_df = st.session_state.teachers_df
+            teacher_id_to_name = {row['id']: row.get('name', row['id']) for _, row in teachers_df.iterrows()} if 'name' in teachers_df.columns else {row['id']: row['id'] for _, row in teachers_df.iterrows()}
+            teacher_map = {}
+            teacher_options = []
+            for tid in sched['Teacher'].unique():
+                name = teacher_id_to_name.get(tid, tid)
+                display = f"{name} ({tid})" if name != tid else str(tid)
+                teacher_map[display] = tid
+                teacher_options.append(display)
+            teacher_display = st.selectbox("Select Teacher", teacher_options, key="teacher_select")
+            teacher = teacher_map[teacher_display]
+            st.markdown(f"**Teacher: {teacher_display}**")
+            for shift_idx, rng in enumerate(shift_period_ranges[st.session_state.num_shifts]):
+                shift_name = shift_labels[st.session_state.num_shifts][shift_idx]
+                shift_periods_list = periods[rng[0]:rng[1]+1]
+                timetable = pd.DataFrame('', index=shift_periods_list, columns=days)
+                t_sched = sched[(sched['Teacher'] == teacher) & (sched['Period'].isin(shift_periods_list))]
+                for _, row in t_sched.iterrows():
+                    cell = f"{row['Subject']}\n({row['Class']})\nRoom: {row['Room']}"
+                    timetable.at[row['Period'], row['Day']] = cell
+                st.markdown(f"*Shift: {shift_name}*")
+                st.dataframe(timetable)
+        elif 'last_schedule' in st.session_state:
+            st.error("No feasible schedule. Check inputs.")
 
     # Diagnostics Tab (Phase 2)
     with tabs[3]:
