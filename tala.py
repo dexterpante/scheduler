@@ -393,18 +393,26 @@ def main():
                 st.subheader("Timetable View (by Teacher, with Shifts)")
                 teachers_df = st.session_state.teachers_df
                 teacher_id_to_name = {row['id']: row.get('name', row['id']) for _, row in teachers_df.iterrows()} if 'name' in teachers_df.columns else {row['id']: row['id'] for _, row in teachers_df.iterrows()}
-                for teacher in sched['Teacher'].unique():
-                    st.markdown(f"**Teacher: {teacher_id_to_name.get(teacher, teacher)}**")
-                    for shift_idx, rng in enumerate(shift_period_ranges[st.session_state.num_shifts]):
-                        shift_name = shift_labels[st.session_state.num_shifts][shift_idx]
-                        shift_periods_list = periods[rng[0]:rng[1]+1]
-                        timetable = pd.DataFrame('', index=shift_periods_list, columns=days)
-                        t_sched = sched[(sched['Teacher'] == teacher) & (sched['Period'].isin(shift_periods_list))]
-                        for _, row in t_sched.iterrows():
-                            cell = f"{row['Subject']}\n({row['Class']})\nRoom: {row['Room']}"
-                            timetable.at[row['Period'], row['Day']] = cell
-                        st.markdown(f"*Shift: {shift_name}*")
-                        st.dataframe(timetable)
+                teacher_map = {}
+                teacher_options = []
+                for tid in sched['Teacher'].unique():
+                    name = teacher_id_to_name.get(tid, tid)
+                    display = f"{name} ({tid})" if name != tid else str(tid)
+                    teacher_map[display] = tid
+                    teacher_options.append(display)
+                teacher_display = st.selectbox("Select Teacher", teacher_options)
+                teacher = teacher_map[teacher_display]
+                st.markdown(f"**Teacher: {teacher_display}**")
+                for shift_idx, rng in enumerate(shift_period_ranges[st.session_state.num_shifts]):
+                    shift_name = shift_labels[st.session_state.num_shifts][shift_idx]
+                    shift_periods_list = periods[rng[0]:rng[1]+1]
+                    timetable = pd.DataFrame('', index=shift_periods_list, columns=days)
+                    t_sched = sched[(sched['Teacher'] == teacher) & (sched['Period'].isin(shift_periods_list))]
+                    for _, row in t_sched.iterrows():
+                        cell = f"{row['Subject']}\n({row['Class']})\nRoom: {row['Room']}"
+                        timetable.at[row['Period'], row['Day']] = cell
+                    st.markdown(f"*Shift: {shift_name}*")
+                    st.dataframe(timetable)
 
     # Diagnostics Tab (Phase 2)
     with tabs[5]:
@@ -431,7 +439,8 @@ def main():
                 st.dataframe(over_teachers)
             # 3. Overloaded classrooms
             room_counts = sched.groupby('Room').size()
-            over_rooms = room_counts[room_counts > rooms_df.set_index('id')['capacity'].max()]
+            room_cap = rooms_df.set_index('id')['capacity']
+            over_rooms = room_counts[room_counts > room_cap]
             st.write(f"Overloaded classrooms: {len(over_rooms)}")
             if not over_rooms.empty:
                 st.dataframe(over_rooms)
@@ -498,7 +507,8 @@ def main():
             over_teachers = teacher_counts[teacher_counts > st.session_state.max_per_week]
             percent_overload_teachers = 100 * len(over_teachers) / len(teachers_df) if len(teachers_df) else 0
             room_counts = sched.groupby('Room').size()
-            over_rooms = room_counts[room_counts > rooms_df.set_index('id')['capacity'].max()]
+            room_cap = rooms_df.set_index('id')['capacity']
+            over_rooms = room_counts[room_counts > room_cap]
             percent_overload_rooms = 100 * len(over_rooms) / len(rooms_df) if len(rooms_df) else 0
             unmet_sections = 0 # Placeholder: can be computed if logic for unmet is added
             percent_unmet_sections = 0 # Placeholder
