@@ -148,7 +148,7 @@ def main():
         # manual add
         teachers_df = st.session_state.teachers_df
         # Select teacher to edit/delete
-        selected_teacher = st.selectbox("Select Teacher to Edit/Delete", teachers_df['id'] if not teachers_df.empty else [None], key="teacher_select")
+        selected_teacher = st.selectbox("Select Teacher to Edit/Delete", teachers_df['id'] if not teachers_df.empty else [None], key="teacher_select_edit")
         # Edit form
         if selected_teacher and selected_teacher in teachers_df['id'].values:
             row = teachers_df[teachers_df['id'] == selected_teacher].iloc[0]
@@ -406,7 +406,7 @@ def main():
                 display = f"{name} ({tid})" if name != tid else str(tid)
                 teacher_map[display] = tid
                 teacher_options.append(display)
-            teacher_display = st.selectbox("Select Teacher", teacher_options, key="teacher_select")
+            teacher_display = st.selectbox("Select Teacher", teacher_options, key="sched_teacher_select")
             teacher = teacher_map[teacher_display]
             st.markdown(f"**Teacher: {teacher_display}**")
             for shift_idx, rng in enumerate(shift_period_ranges[st.session_state.num_shifts]):
