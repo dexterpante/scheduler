@@ -99,7 +99,7 @@ def solve_with_pulp(teachers, rooms, classes, max_per_day, max_per_week, num_shi
 # 3. STREAMLIT APP
 # ----------------------------
 def main():
-    st.title("Tala: Teacher and cLassroom Allocation Assistant")
+    st.title("Teacher and classroom app")
     # Initialize state
     if "teachers_df" not in st.session_state:
         st.session_state.teachers_df = pd.DataFrame(columns=["id","major","minor"])
